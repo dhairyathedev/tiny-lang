@@ -29,6 +29,7 @@ for line in program_lines:
         print(f"{line} <-- missing semicolon (;)")
         error_found = True
         break  # Exit the loop if error found
+    # program.append(opcode)
     if opcode == "EXIT_CODE":
         operand = parts[1]
         if not operand.isdigit() and operand not in variables:
@@ -55,13 +56,6 @@ for line in program_lines:
             error_found = True
             break
         program.append((opcode, var_name, int(val)))
-    elif opcode == "PRINT":
-        var_name = parts[1]
-        if var_name not in variables:
-            print(f"{line} <-- variable {var_name} not declared.")
-            error_found = True
-            break
-        program.append((opcode, var_name))
     elif opcode in {"ADD", "SUB", "MUL", "DIV"}:
         var1, var2, var3 = parts[1], parts[2], parts[3]
         if var1 not in variables or var2 not in variables or var3 not in variables:
@@ -90,30 +84,25 @@ _start:
     var_register_map = {}
     next_register = 1  # start from x1 because x0 is used for system calls
 
-    def get_register(var_name):
-        global next_register
-        if var_name not in var_register_map:
-            var_register_map[var_name] = f"x{next_register}"
-            next_register += 1
-        return var_register_map[var_name]
-
     for instruction in program:
         opcode = instruction[0]
         if opcode == "VAR":
             var_name = instruction[1]
             # Initialize variable in a register
-            reg = get_register(var_name)
+            reg = f"x{next_register}"
+            var_register_map[var_name] = reg
+            next_register += 1
             output.write(f"\t/* VAR: {var_name} initialized to 0 */\n")
             output.write(f"\tmov {reg}, #0\n")
         elif opcode == "ASSIGN":
             var_name, val = instruction[1], instruction[2]
-            reg = get_register(var_name)
+            reg = var_register_map[var_name]
             output.write(f"\t/* ASSIGN: {var_name} = {val} */\n")
             output.write(f"\tmov {reg}, #{val}\n")
         elif opcode == "EXIT_CODE":
             operand = instruction[1]
             if operand in variables:
-                reg = get_register(operand)
+                reg = var_register_map[operand]
                 output.write(f"\t/* EXIT_CODE: {operand} */\n")
                 output.write(f"\tmov x0, {reg}\n")
             else:
@@ -121,18 +110,9 @@ _start:
                 output.write(f"\tmov x0, #{operand}\n")
             output.write("\tmov x8, #93\n")  # syscall number for exit
             output.write("\tsvc #0\n")       # make syscall
-        elif opcode == "PRINT":
-            var_name = instruction[1]
-            reg = get_register(var_name)
-            output.write(f"\t/* PRINT: {var_name} */\n")
-            output.write(f"\tmov x1, {reg}\n") # Move variable value to x1
-            output.write("\tmov x0, #1\n")  # File descriptor 1 (stdout)
-            output.write("\tmov x2, #10\n") # Assuming single-digit number
-            output.write("\tmov x8, #64\n") # syscall number for write
-            output.write("\tsvc #0\n")      # make syscall
         elif opcode in {"ADD", "SUB", "MUL", "DIV"}:
             var1, var2, var3 = instruction[1], instruction[2], instruction[3]
-            reg1, reg2, reg3 = get_register(var1), get_register(var2), get_register(var3)
+            reg1, reg2, reg3 = var_register_map[var1], var_register_map[var2], var_register_map[var3]
             if opcode == "ADD":
                 output.write(f"\t/* ADD: {var1} + {var2} = {var3} */\n")
                 output.write(f"\tadd {reg3}, {reg1}, {reg2}\n")
