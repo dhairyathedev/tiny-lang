@@ -14,9 +14,9 @@ with open(program_filepath, "r") as pf:
         for line in pf.readlines()
     ]
 
-# print(program_lines) # Print the program lines individually
 # [CMD] Parsing Starts
 program = []
+variables = {}
 error_found = False  # Flag variable to track if an error is found
 
 for line in program_lines:
@@ -31,18 +31,42 @@ for line in program_lines:
         break  # Exit the loop if error found
     # program.append(opcode)
     if opcode == "EXIT_CODE":
-        val = int(parts[1])
-        program.append((opcode, val))
-    elif opcode == "ADD":
-        if len(parts[:-1]) != 3:
-            print(f"{line} <-- incorrect number of operands for ADD. required (2) (ADD value1, value2) : value1, value2 are integers")
+        operand = parts[1]
+        if not operand.isdigit() and operand not in variables:
+            print(f"{line} <-- invalid operand for EXIT_CODE. Must be an integer or declared variable.")
             error_found = True
             break
-        program.append((opcode, int(parts[1]), int(parts[2])))
+        program.append((opcode, operand))
+    elif opcode == "VAR":
+        var_name = parts[1]
+        if var_name in variables:
+            print(f"{line} <-- variable {var_name} already declared.")
+            error_found = True
+            break
+        variables[var_name] = None
+        program.append((opcode, var_name))
+    elif opcode == "ASSIGN":
+        var_name, val = parts[1], parts[2]
+        if var_name not in variables:
+            print(f"{line} <-- variable {var_name} not declared.")
+            error_found = True
+            break
+        if not val.isdigit():
+            print(f"{line} <-- invalid value {val} for ASSIGN. Must be an integer.")
+            error_found = True
+            break
+        program.append((opcode, var_name, int(val)))
+    elif opcode in {"ADD", "SUB", "MUL", "DIV"}:
+        var1, var2, var3 = parts[1], parts[2], parts[3]
+        if var1 not in variables or var2 not in variables or var3 not in variables:
+            print(f"{line} <-- all operands for {opcode} must be declared variables.")
+            error_found = True
+            break
+        program.append((opcode, var1, var2, var3))
 
 if not error_found:
-    print("DONE PARSING") # DEBUG
-    print(program) # DEBUG
+    print("DONE PARSING")  # DEBUG
+    print(program)  # DEBUG
 
     '''
         COMPILATION TO ASSEMBLY
@@ -57,24 +81,54 @@ if not error_found:
 _start:
 """)
 
-    for opcode, *operands in program:
-        print(opcode, operands)
-        if opcode == "EXIT_CODE":
-            return_val = operands[0]
-            output.write(f"\t/*EXIT STATUS: {return_val} */\n") 
-            output.write(f"\tmov x0, #{return_val}\n")
+    var_register_map = {}
+    next_register = 1  # start from x1 because x0 is used for system calls
+
+    for instruction in program:
+        opcode = instruction[0]
+        if opcode == "VAR":
+            var_name = instruction[1]
+            # Initialize variable in a register
+            reg = f"x{next_register}"
+            var_register_map[var_name] = reg
+            next_register += 1
+            output.write(f"\t/* VAR: {var_name} initialized to 0 */\n")
+            output.write(f"\tmov {reg}, #0\n")
+        elif opcode == "ASSIGN":
+            var_name, val = instruction[1], instruction[2]
+            reg = var_register_map[var_name]
+            output.write(f"\t/* ASSIGN: {var_name} = {val} */\n")
+            output.write(f"\tmov {reg}, #{val}\n")
+        elif opcode == "EXIT_CODE":
+            operand = instruction[1]
+            if operand in variables:
+                reg = var_register_map[operand]
+                output.write(f"\t/* EXIT_CODE: {operand} */\n")
+                output.write(f"\tmov x0, {reg}\n")
+            else:
+                output.write(f"\t/* EXIT_CODE: {operand} */\n")
+                output.write(f"\tmov x0, #{operand}\n")
             output.write("\tmov x8, #93\n")  # syscall number for exit
             output.write("\tsvc #0\n")       # make syscall
-        elif opcode == "ADD":
-            v1, v2 = operands
-            output.write(f"\t/* ADD: {v1} and {v2} */\n")
-            output.write(f"\tmov x9, #{v1}\n")
-            output.write(f"\tmov x10, #{v2}\n")
-            output.write("\tadd x0, x9, x10\n")
+        elif opcode in {"ADD", "SUB", "MUL", "DIV"}:
+            var1, var2, var3 = instruction[1], instruction[2], instruction[3]
+            reg1, reg2, reg3 = var_register_map[var1], var_register_map[var2], var_register_map[var3]
+            if opcode == "ADD":
+                output.write(f"\t/* ADD: {var1} + {var2} = {var3} */\n")
+                output.write(f"\tadd {reg3}, {reg1}, {reg2}\n")
+            elif opcode == "SUB":
+                output.write(f"\t/* SUB: {var1} - {var2} = {var3} */\n")
+                output.write(f"\tsub {reg3}, {reg1}, {reg2}\n")
+            elif opcode == "MUL":
+                output.write(f"\t/* MUL: {var1} * {var2} = {var3} */\n")
+                output.write(f"\tmul {reg3}, {reg1}, {reg2}\n")
+            elif opcode == "DIV":
+                output.write(f"\t/* DIV: {var1} / {var2} = {var3} */\n")
+                output.write(f"\tsdiv {reg3}, {reg1}, {reg2}\n")
   
     output.close()
     
-    print("DONE COMPILING") # DEBUG
+    print("DONE COMPILING")  # DEBUG
     print(f"OUTPUT ASSEMBLY: {asm_filepath}")
     
     '''
@@ -82,15 +136,12 @@ _start:
     '''
     
     os.system(f"as {asm_filepath} -o {asm_filepath[:-4]}.o")
-    print("DONE ASSEMBLING") # DEBUG
+    print("DONE ASSEMBLING")  # DEBUG
 
     '''
         Linking
     '''
     os.system(f"ld {asm_filepath[:-4]}.o -o {asm_filepath[:-4]}.elf")
-    print("DONE LINKING") # DEBUG
+    print("DONE LINKING")  # DEBUG
 else:
     print("Error found during parsing. Compilation aborted.")
-
-
-

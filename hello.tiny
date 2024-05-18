@@ -1,2 +1,11 @@
-ADD 5 4;
-EXIT_CODE 7;
+VAR x;
+VAR y;
+VAR z;
+ASSIGN x 4;
+ASSIGN y 5;
+ADD x y z;
+VAR w;
+VAR v;
+ASSIGN v 5;
+SUB z v w;
+EXIT_CODE 5;
